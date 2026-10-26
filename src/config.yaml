@@ -1,0 +1,57 @@
+project_name: "Hotel Customer No-Show Prediction"
+data_path: "data/data.csv"
+target_column: "no_show"
+random_state: 42
+test_size: 0.20
+
+required_columns:
+  - booking_id
+  - no_show
+  - branch
+  - booking_month
+  - arrival_month
+  - arrival_day
+  - checkout_month
+  - checkout_day
+  - country
+  - first_time
+  - room
+  - price
+  - platform
+  - num_adults
+  - num_children
+
+identifier_columns:
+  - booking_id
+
+categorical_features:
+  - branch
+  - booking_month
+  - arrival_month
+  - checkout_month
+  - country
+  - first_time
+  - room
+  - platform
+  - price_currency
+
+numeric_features:
+  - arrival_day
+  - checkout_day
+  - price_amount
+  - num_adults
+  - num_children
+  - booking_lead_months
+  - length_of_stay_days
+  - total_guests
+
+cv_folds: 5
+tuning_cv_folds: 3
+tuning_iterations: 8
+primary_metric: "f2"
+threshold_metric_beta: 2.0
+threshold_min_precision: 0.55
+
+model_artifact_path: "best_model.joblib"
+model_comparison_path: "model_comparison.csv"
+final_test_results_path: "final_test_results.json"
