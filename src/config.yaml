@@ -1,8 +1,10 @@
 project_name: "Hotel Customer No-Show Prediction"
+python_version: "3.12"
 data_path: "data/data.csv"
 target_column: "no_show"
 random_state: 42
 test_size: 0.20
+validation_size: 0.20
 
 required_columns:
   - booking_id
@@ -21,8 +23,7 @@ required_columns:
   - num_adults
   - num_children
 
-identifier_columns:
-  - booking_id
+identifier_columns: [booking_id]
 
 categorical_features:
   - branch
@@ -34,24 +35,69 @@ categorical_features:
   - room
   - platform
   - price_currency
+  - branch_country
+  - branch_first_time
+  - country_first_time
 
 numeric_features:
   - arrival_day
   - checkout_day
-  - price_amount
+  - price_sgd
   - num_adults
   - num_children
   - booking_lead_months
   - length_of_stay_days
   - total_guests
+  - price_per_guest_sgd
+  - arrival_month_sin
+  - arrival_month_cos
+  - booking_month_sin
+  - booking_month_cos
+
+# Fixed conversion assumption because the dataset has no booking year/date.
+currency_to_sgd:
+  SGD: 1.0
+  USD: 1.35
 
 cv_folds: 5
 tuning_cv_folds: 3
-tuning_iterations: 8
-primary_metric: "f2"
-threshold_metric_beta: 2.0
-threshold_min_precision: 0.55
+tuning_iterations: 4
+primary_metric: "average_precision"
+calibration_method: "sigmoid"
+calibration_cv_folds: 3
 
-model_artifact_path: "best_model.joblib"
-model_comparison_path: "model_comparison.csv"
-final_test_results_path: "final_test_results.json"
+threshold:
+  minimum: 0.10
+  maximum: 0.90
+  step: 0.01
+  minimum_precision: 0.50
+  false_negative_cost: 5.0
+  false_positive_cost: 1.0
+  beta: 2.0
+
+hyperparameters:
+  Logistic Regression - Unweighted:
+    model__C: [0.01, 0.1, 0.5, 1.0, 2.0, 10.0]
+    model__solver: [lbfgs, liblinear]
+  Logistic Regression - Class Weighted:
+    model__C: [0.01, 0.1, 0.5, 1.0, 2.0, 10.0]
+    model__solver: [lbfgs, liblinear]
+  Random Forest - Class Weighted:
+    model__n_estimators: [100, 150]
+    model__max_depth: [12, 18]
+    model__min_samples_leaf: [2, 5]
+    model__max_features: [sqrt, 0.6]
+  Histogram Gradient Boosting - Class Weighted:
+    model__learning_rate: [0.03, 0.05, 0.08, 0.12]
+    model__max_iter: [180, 250, 320]
+    model__max_leaf_nodes: [15, 31, 63]
+    model__min_samples_leaf: [15, 30, 60]
+    model__l2_regularization: [0.1, 0.5, 1.0, 3.0]
+  Histogram Gradient Boosting - Random Oversampling:
+    model__estimator__learning_rate: [0.03, 0.05, 0.08, 0.12]
+    model__estimator__max_iter: [180, 250, 320]
+    model__estimator__max_leaf_nodes: [15, 31, 63]
+    model__estimator__min_samples_leaf: [15, 30, 60]
+    model__estimator__l2_regularization: [0.1, 0.5, 1.0, 3.0]
+
+artifact_directory: "artifacts"

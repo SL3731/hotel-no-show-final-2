@@ -1,119 +1,187 @@
 # Hotel Customer No-Show Prediction
 
-## Project overview
+## Objective
 
-This project predicts whether a hotel booking will become a no-show (`no_show = 1`). The result can help the hotel prioritise reminders, confirmations or deposit policies while avoiding a policy that treats every booking as high risk.
+This project predicts whether a hotel booking will become a no-show (`no_show = 1`). It is designed to support targeted reminders, confirmation calls, deposits, or overbooking review rather than automatic booking rejection.
 
-This is a binary classification problem because the target has two outcomes: show (`0`) and no-show (`1`). The dataset contains 119,391 records. One record without a valid target is removed, leaving 119,390 usable observations; 37.04% are no-shows.
+The dataset contains 119,391 records. One row without a target is removed, leaving 119,390 usable bookings. No-shows account for 37.04%, giving a moderate majority:minority ratio of approximately 1.70:1.
 
 ## Project structure
 
 ```text
-hotel_no_show_prediction/
+hotel_no_show_final/
 ├── eda.ipynb
 ├── README.md
 ├── requirements.txt
+├── requirements-dev.txt
 ├── data/
 │   └── data.csv
 ├── src/
 │   ├── data_preparation.py
 │   ├── model_training.py
 │   └── config.yaml
+├── tests/
+│   └── test_pipeline.py
 └── main.py
 ```
 
-Running `main.py` also creates `best_model.joblib`, `model_comparison.csv` and `final_test_results.json`. These reproducible outputs are excluded from Git by default.
+Training creates a timestamped directory under `artifacts/` containing the model bundle, configuration snapshot, run metadata, logs, comparison results, threshold analysis, calibration results, feature importance, and final test metrics. Generated artifacts are excluded from Git because they can be reproduced from the tracked code and data.
 
-## Data investigation
+## Exploratory analysis
 
-The EDA notebook checks the schema, data types, duplicates, missing values, category consistency, distributions, no-show rates, correlations, statistical significance and effect sizes. Important findings include:
+The EDA notebook includes:
 
-- `booking_id` is unique and is excluded from modelling.
-- One row has no valid target and is removed.
-- `room` and `price` have 18.10% and 20.84% missing values respectively.
-- `arrival_month` has inconsistent capitalisation, which is standardised.
-- `num_adults` mixes words and digits, which are mapped to numeric values.
-- 5,696 checkout days have negative signs. Their absolute values are valid days from 1 to 31, so the sign is corrected.
-- Price contains SGD or USD prefixes. Currency and numeric amount are separated rather than treating the full string as a category.
-- Country has the strongest standalone association with no-show status, followed by branch. Numerical features have weak individual effects, supporting multivariate model comparison.
+- explicit full-data and stratified-sample decisions;
+- schema, target, duplicate, category, and missingness checks;
+- missingness relationships with the target;
+- chronological month and approximate lead-time analysis;
+- ordered and cyclical temporal reasoning;
+- subgroup and interaction analysis across branch, country, and first-time status;
+- chi-square diagnostic counts and Cramér's V effect sizes;
+- an exploratory model-based feature-importance screen;
+- an explicit imbalance and evaluation plan; and
+- a consolidated limitations section.
 
-Missing-value imputation is learned only from each training fold. Missingness indicators preserve potentially useful information about absent `room` and `price` values.
+The full dataset is used for summaries, tests, and modelling. A reproducible 30,000-row stratified sample is used only for repeated plots and the quick exploratory importance model.
 
-## Modelling approach
+## Data preparation and feature engineering
 
-The data uses an 80/20 stratified train-test split. All preprocessing is contained inside scikit-learn pipelines to prevent information from validation or test data leaking into training.
+The pipeline validates the schema and binary target before transformation. It then:
 
-The pipeline:
+1. removes the single row without a target;
+2. standardises text categories and month capitalisation;
+3. maps adult counts written as words or digits to numeric values;
+4. corrects negative checkout-day sign errors after confirming their absolute values are valid days;
+5. separates price amount and currency and converts USD to SGD using the configured fixed rate;
+6. preserves missingness through fold-local imputation indicators;
+7. removes the unique `booking_id` identifier;
+8. creates approximate booking lead months and length of stay;
+9. creates cyclical sine/cosine month features;
+10. creates total guests and SGD price per guest; and
+11. creates branch-country and first-time interaction features.
 
-1. validates the required schema and target;
-2. standardises categories and repairs documented formatting errors;
-3. engineers booking lead months, approximate stay length and total guests;
-4. median-imputes and scales numerical features;
-5. mode-imputes and one-hot encodes categorical features;
-6. compares three suitable predictive models plus a naive benchmark using the same five stratified folds;
-7. tunes the best model using training data only;
-8. selects a probability threshold from out-of-fold training predictions; and
-9. evaluates once on the untouched test set.
+The target and identifier are explicitly asserted to be absent from model inputs. Preprocessing is unfitted when returned by data preparation and is fitted only inside each model's cross-validation or training pipeline.
 
-The three predictive models are Logistic Regression, Random Forest and Histogram Gradient Boosting. Logistic Regression provides an interpretable linear baseline. Random Forest captures nonlinearities and interactions. Histogram Gradient Boosting builds trees sequentially to correct prior errors and is efficient for this tabular dataset.
+## Class imbalance strategy
 
-## Evaluation choice
+Accuracy alone is unsuitable because a model could favour the majority class. The same five stratified folds compare:
 
-Missing a likely no-show may leave a room unused, so recall is important. However, excessive false alerts could inconvenience reliable customers. The primary selection metric is therefore **F2**, which gives recall twice the weight of precision. ROC-AUC and average precision assess probability ranking independently of the final classification threshold.
+- Dummy prior baseline;
+- unweighted Logistic Regression;
+- class-weighted Logistic Regression;
+- class-weighted Random Forest;
+- class-weighted Histogram Gradient Boosting; and
+- Histogram Gradient Boosting with random oversampling.
 
-The final threshold is selected using out-of-fold predictions from the training set, maximising F2 while requiring precision of at least 0.55. The test set is not used for model or threshold selection.
+Random oversampling occurs inside the estimator's `fit` method after fold-local preprocessing. Validation and test rows are never resampled. This allows a direct comparison of no adjustment, class weighting, and resampling without leakage.
 
-## Cross-validation results
+## Model selection and evaluation
 
-| Model | Precision | Recall | F1 | F2 | ROC-AUC | Average precision |
+The primary model-selection metric is average precision (PR-AUC), which assesses minority-class probability ranking without assuming a classification threshold. Supporting metrics include precision, recall, F1, F2, balanced accuracy, ROC-AUC, MCC, Brier score, log loss, specificity, and confusion-matrix counts.
+
+Five-fold cross-validation results:
+
+| Model | Precision | Recall | F2 | Balanced accuracy | ROC-AUC | PR-AUC |
 |---|---:|---:|---:|---:|---:|---:|
-| Histogram Gradient Boosting | 0.644 | 0.647 | 0.645 | **0.646** | 0.795 | 0.724 |
-| Logistic Regression | 0.589 | **0.652** | 0.619 | 0.639 | 0.744 | 0.624 |
-| Random Forest | **0.714** | 0.598 | **0.651** | 0.618 | **0.816** | **0.768** |
-| Dummy prior | 0.000 | 0.000 | 0.000 | 0.000 | 0.500 | 0.370 |
+| Random Forest — class weighted | **0.707** | 0.604 | 0.622 | **0.728** | **0.814** | **0.764** |
+| Histogram Gradient Boosting — class weighted | 0.646 | 0.649 | 0.648 | 0.720 | 0.797 | 0.727 |
+| Histogram Gradient Boosting — oversampled | 0.648 | **0.650** | **0.649** | 0.721 | 0.797 | 0.727 |
+| Logistic Regression — unweighted | 0.662 | 0.506 | 0.531 | 0.677 | 0.745 | 0.628 |
+| Logistic Regression — class weighted | 0.595 | 0.644 | 0.633 | 0.693 | 0.745 | 0.626 |
+| Dummy prior | 0.000 | 0.000 | 0.000 | 0.500 | 0.500 | 0.370 |
 
-Values are five-fold means at the models' default 0.50 thresholds. Histogram Gradient Boosting has the highest F2 and a better precision-recall balance than Logistic Regression. Random Forest ranks risks particularly well, as shown by its ROC-AUC and average precision, but its lower recall makes its default operating point less suitable for the stated objective.
+Class-weighted Random Forest is selected because it has the strongest PR-AUC, ROC-AUC, and balanced accuracy. The result also demonstrates that imbalance handling is not selected by assumption: weighting and oversampling are both evaluated, and weighting performs better for probability ranking in this dataset.
 
-## Selected model and final test result
+## Calibration and cost-aware threshold
 
-Histogram Gradient Boosting was selected, tuned and assigned a probability threshold of 0.40. On the untouched test set it achieved:
+After tuning, the selected model is probability-calibrated using sigmoid calibration. A separate stratified validation partition from the training data is used for threshold selection. The test set is not used to select the model, hyperparameters, calibration method, or threshold.
+
+The configured scenario assigns a false negative five times the cost of a false positive. Thresholds from 0.10 to 0.90 are evaluated. The selected threshold minimises validation cost while requiring precision of at least 0.50, preventing the model from achieving high recall by flagging almost every booking.
+
+This 5:1 ratio is a transparent scenario, not a claimed monetary estimate. Hotel operations should replace it with actual empty-room and intervention costs.
+
+## Final untouched-test results
+
+The calibrated class-weighted Random Forest selects a threshold of **0.20** and achieves:
 
 | Metric | Result |
 |---|---:|
-| Precision | 0.559 |
-| Recall | **0.785** |
-| Specificity | 0.636 |
-| F1 | 0.653 |
-| F2 | **0.726** |
-| ROC-AUC | 0.804 |
-| Average precision | 0.738 |
+| Precision | 0.504 |
+| Recall | **0.881** |
+| Specificity | 0.490 |
+| F1 | 0.641 |
+| F2 | **0.767** |
+| Balanced accuracy | 0.686 |
+| MCC | 0.375 |
+| ROC-AUC | 0.821 |
+| PR-AUC | **0.778** |
+| Brier score | 0.158 |
+| Log loss | 0.482 |
 
-The test confusion matrix contains 6,942 correctly identified no-shows, 1,903 missed no-shows, 9,559 correctly identified shows and 5,474 false alerts. The threshold intentionally increases recall to catch more no-shows while retaining the configured minimum precision.
+Confusion matrix counts:
 
-The model should support targeted operational action rather than automatic rejection. Country is predictive in this historical dataset, but it should be monitored for fairness and policy implications. Before deployment, the hotel should attach real monetary costs to false negatives and false positives, validate performance on newer time periods and monitor drift. The available month fields do not include years, so exact lead time and stay duration cannot be reconstructed.
+- True positives: 7,796
+- False negatives: 1,049
+- True negatives: 7,363
+- False positives: 7,670
 
-## How to run
+Under the configured 5:1 cost scenario, the selected threshold has an estimated test cost of 12,915 units. This is 8,034 units lower than using the default 0.50 threshold and 31,310 units lower than predicting every booking as a show. These values compare policies under the stated assumptions; they are not currency amounts.
 
-Open a terminal in this project folder, then run:
+Validation permutation importance identifies `country_first_time`, length of stay, booking lead time, checkout day, arrival day, cyclical arrival month, room, and country as leading predictors. Importance is predictive rather than causal.
+
+## Installation
+
+The project was validated with Python 3.12.
 
 ```bash
 conda activate hdbenv
 python -m pip install -r requirements.txt
-python main.py
 ```
 
-If `hdbenv` is not available, create a project-specific environment instead:
+For notebook and development tools:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python main.py
+python -m pip install -r requirements-dev.txt
 ```
 
-For the notebook, select the same Python environment as the Jupyter kernel and run all cells in `eda.ipynb` from top to bottom. Run commands from the project root so the relative path `data/data.csv` resolves correctly.
+## Run training
 
-## Reproducibility
+From the project root:
 
-The random seed, split ratio, feature lists, cross-validation settings, threshold rule and file paths are centralised in `src/config.yaml`. The complete pipeline can be reproduced with one command, and the saved model contains both preprocessing and the trained classifier.
+```bash
+python main.py train
+```
+
+`python main.py` remains equivalent to `python main.py train`.
+
+## Run tests
+
+```bash
+python -m pytest -q
+```
+
+The tests cover configuration validation, missing schema fields, cleaning edge cases, preprocessing compatibility, feature engineering, reproducible stratification, leakage boundaries, random oversampling, and cost-aware threshold selection.
+
+## Batch prediction
+
+After training, locate the latest model bundle under the timestamped artifact directory and run:
+
+```bash
+python main.py predict \
+  --model artifacts/run_YYYYMMDD_HHMMSS/model_bundle.joblib \
+  --input path/to/new_bookings.csv \
+  --output predictions.csv
+```
+
+The input must contain the original booking feature columns but does not need `no_show`. The output contains booking ID, calibrated no-show probability, and the thresholded prediction.
+
+## Limitations and responsible use
+
+- The dataset contains months but no year, so exact lead times, stay lengths, and temporal holdout evaluation are unavailable.
+- The fixed USD-to-SGD conversion rate is an assumption because transaction dates are unavailable.
+- Country is strongly predictive but may encode demographic or structural differences. It requires fairness review, subgroup monitoring, and human-governed policy use.
+- There is no free-text field, so text-derived analysis is not applicable.
+- The cost ratio must be validated with real hotel economics.
+- Performance and calibration must be checked on newer bookings and monitored for drift before deployment.
+
+The model should prioritise proportionate outreach or review. It should not automatically reject customers or impose punitive policies based solely on a prediction.
